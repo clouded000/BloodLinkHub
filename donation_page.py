@@ -3,9 +3,10 @@ from tkinter import ttk, messagebox
 from tkcalendar import DateEntry
 from PIL import Image, ImageTk
 from datetime import datetime, timedelta
-from db import get_connection
 from dateutil.relativedelta import relativedelta
 import re
+from db import get_connection
+
 
 class DonationPage(tk.Frame):
     def __init__(self, parent, controller, admin_id):
@@ -13,7 +14,6 @@ class DonationPage(tk.Frame):
         self.controller = controller
         self.admin_id = admin_id
 
-        # — NAVBAR —
         nav = tk.Frame(self, bg='white')
         nav.pack(fill='x')
 
@@ -32,11 +32,12 @@ class DonationPage(tk.Frame):
         tk.Label(nav, text="👤", font=("Arial", 12), bg='white').pack(side='right', padx=20)
         tk.Frame(self, bg='lightgray', height=1).pack(fill='x')
 
-        # — FORM —
         mf = tk.Frame(self, bg='white')
         mf.pack(fill='both', expand=True, pady=10, padx=10)
+
         lf = tk.Frame(mf, bg='white')
         lf.pack(side='left', padx=10)
+
         tk.Label(lf, text="+ ADD DONATION", fg='red', font=("Arial", 10, "bold"), bg='white').pack(anchor='w')
         ff = tk.Frame(lf, bg='red', padx=10, pady=10)
         ff.pack(pady=5)
@@ -71,26 +72,24 @@ class DonationPage(tk.Frame):
         self.blood_type = ttk.Combobox(ff, values=["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"], width=28)
         self.blood_type.pack(pady=2)
 
-
-
         tk.Button(ff, text="ADD", bg='white', fg='red',
                   font=("Arial", 10, "bold"), width=20, command=self.add_donation).pack(pady=10)
 
-        # — TABLE —
         tf = tk.Frame(mf, bg='white')
         tf.pack(side='right', fill='both', expand=True, padx=10)
         cols = (
             'First Name', 'Last Name', 'Contact', 'Email', 'Birthday', 'Sex',
-            'Date of Donation', 'Blood Type', 'Component')
+            'Date of Donation', 'Blood Type'
+        )
         self.donation_table = ttk.Treeview(tf, columns=cols, show='headings', height=15)
         for c in cols:
             self.donation_table.heading(c, text=c)
             self.donation_table.column(c, anchor='center', width=120)
         self.donation_table.pack(fill='both', expand=True)
-        tk.Button(tf, text="🔄 Refresh", command=self.load_donations, bg='red', fg='white').pack(pady=5)
+        tk.Button(tf, text="Refresh", command=self.load_donations, bg='red', fg='white').pack(pady=5)
 
         self.load_donations()
-        self._logo = logo_img  # Image reference
+        self._logo = logo_img
 
     def add_donation(self):
         fn = self.first_name.get().strip()
@@ -102,40 +101,30 @@ class DonationPage(tk.Frame):
         bt = self.blood_type.get()
         vol = self.volume.get().strip()
         dt = self.date_field.get()
-        comp = self.component.get()
 
-        if not all([fn, ln, bd, gen, cn, bt, vol, comp]):
+        if not all([fn, ln, bd, gen, cn, bt, vol]):
             return messagebox.showerror("Error", "Please fill out every field.")
 
-            #volume
-        if not vol.isdigit() or int(vol) <= 0:
-            return messagebox.showerror("Error", "Volume must be a positive number.")
-        vol_int = int(vol)
-        if vol_int < 450 or vol_int > 500:
+        if not vol.isdigit() or int(vol) < 450 or int(vol) > 500:
             return messagebox.showerror("Error", "Volume must be between 450 ml and 500 ml.")
 
         if not cn.isdigit() or len(cn) != 11:
-            return messagebox.showerror("Invalid Format", "Contact number must be exactly 11 digits and contain only numbers.")
+            return messagebox.showerror("Invalid Format", "Contact number must be exactly 11 digits.")
         if not re.match(r"^09\d{9}$", cn):
-            return messagebox.showerror("Invalid Format",
-                                        "Contact number must start with '09' and be exactly 11 digits.")
+            return messagebox.showerror("Invalid Format", "Contact must start with '09' and be 11 digits.")
 
-        #name
         name_pattern = r"^[A-Za-z\s\-]+$"
         if not re.match(name_pattern, fn) or not re.match(name_pattern, ln):
             return messagebox.showerror("Error", "Names can only contain letters, spaces, or hyphens.")
 
-        #gmail.com
-        gmail_pattern = r"^[a-zA-Z0-9._%+-]+@gmail.com"
+        gmail_pattern = r"^[a-zA-Z0-9._%+-]+@gmail.com$"
         if em and not re.match(gmail_pattern, em):
-            return messagebox.showerror("Invalid Format", "Enter a valid Gmail address (e.g. johndoe123@gmail.com).")
+            return messagebox.showerror("Invalid Format", "Enter a valid Gmail address.")
 
-        #birthday
         birth_date = datetime.strptime(bd, "%Y-%m-%d")
-        today = datetime.today()
-        age = relativedelta(today, birth_date).years
+        age = relativedelta(datetime.today(), birth_date).years
         if age < 18 or age > 65:
-            return messagebox.showerror("Invalid Format", "Age must be between 18 and 65 years old to donate.")
+            return messagebox.showerror("Invalid Format", "Age must be between 18 and 65.")
 
         try:
             conn = get_connection()
@@ -154,14 +143,14 @@ class DonationPage(tk.Frame):
 
                 if last_donation:
                     last_date = datetime.strptime(last_donation, "%Y-%m-%d")
-                    required_months = 4 if gender_db.strip().lower() == 'male' else 6
-                    next_allowed = last_date + relativedelta(months=+required_months)
+                    months_wait = 4 if gender_db.strip().lower() == 'male' else 6
+                    next_allowed = last_date + relativedelta(months=+months_wait)
                     if datetime.today() < next_allowed:
-                        return messagebox.showwarning("Too Early", f"{fn} {ln} can donate again on {next_allowed.strftime('%Y-%m-%d')}")
+                        return messagebox.showwarning("Too Early",
+                                                      f"{fn} {ln} can donate again on {next_allowed.strftime('%Y-%m-%d')}")
             else:
                 c.execute("""
-                    INSERT INTO Donor (first_name, last_name, date_of_birth,
-                                       gender, contact_number, email_address, blood_type)
+                    INSERT INTO Donor (first_name, last_name, date_of_birth, gender, contact_number, email_address, blood_type)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                 """, (fn, ln, bd, gen, cn, em, bt))
                 donor_id = c.lastrowid
@@ -171,19 +160,6 @@ class DonationPage(tk.Frame):
                 INSERT INTO Donation (donor_id, admin_id, donation_date, donation_time, volume_ml, notes)
                 VALUES (?, ?, ?, ?, ?, 'Walk-in donor')
             """, (donor_id, self.admin_id, dt, now.strftime("%H:%M"), vol))
-            donation_id = c.lastrowid
-
-            c.execute("SELECT component_id, shelf_life_days FROM Blood_Component WHERE component_type=?", (comp,))
-            row = c.fetchone()
-            if not row:
-                return messagebox.showerror("Error", f"Component '{comp}' not found.")
-            component_id, shelf_life = row
-
-            expiration = (now + timedelta(days=shelf_life)).strftime("%Y-%m-%d")
-            c.execute("""
-                INSERT INTO Blood_Inventory (donation_id, component_id, quantity_units, expiration_date, status)
-                VALUES (?, ?, 1, ?, 'Available')
-            """, (donation_id, component_id, expiration))
 
             conn.commit()
             messagebox.showinfo("Success", "Donation recorded successfully.")
@@ -194,7 +170,6 @@ class DonationPage(tk.Frame):
             self.birthday.set_date(datetime.today())
             self.gender.set('')
             self.blood_type.set('')
-            self.component.set('')
 
         except Exception as e:
             messagebox.showerror("Database Error", str(e))
@@ -206,11 +181,9 @@ class DonationPage(tk.Frame):
             c.execute("""
                 SELECT do.first_name, do.last_name, do.contact_number, do.email_address,
                        do.date_of_birth, do.gender, d.donation_date,
-                       do.blood_type, bc.component_type
+                       do.blood_type
                 FROM Donation d
                 JOIN Donor do ON d.donor_id = do.donor_id
-                LEFT JOIN Blood_Inventory bi ON d.donation_id = bi.donation_id
-                LEFT JOIN Blood_Component bc ON bi.component_id = bc.component_id
             """)
             rows = c.fetchall()
             conn.close()
