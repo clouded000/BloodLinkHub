@@ -1,8 +1,9 @@
 import tkinter as tk
 from tkinter import messagebox
 from PIL import Image, ImageTk
-from db import get_connection
+import bcrypt
 
+from admin import get_admin_by_username
 
 def open_main_app(admin_id):
     from mainnav_page import MainApp
@@ -12,22 +13,29 @@ def open_main_app(admin_id):
 def login():
     username = email_entry.get().strip()
     password = password_entry.get().strip()
+
     if not username or not password:
         return messagebox.showerror("Login Failed", "Please enter both username and password.")
 
     try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT admin_id FROM Admin WHERE username = ? AND password = ?", (username, password))
-        admin = cursor.fetchone()
-        conn.close()
+        admin = get_admin_by_username(username)
 
         if admin:
-            admin_id = admin[0]
-            root.destroy()
-            open_main_app(admin_id)
+            admin_id, hashed_password = admin
+
+            # If stored as TEXT accidentally, encode to bytes
+            if isinstance(hashed_password, str):
+                hashed_password = hashed_password.encode('utf-8')
+
+            # Validate password
+            if bcrypt.checkpw(password.encode('utf-8'), hashed_password):
+                root.destroy()
+                open_main_app(admin_id)
+            else:
+                messagebox.showerror("Login Failed", "Invalid username or password.")
         else:
             messagebox.showerror("Login Failed", "Invalid username or password.")
+
     except Exception as e:
         messagebox.showerror("Database Error", str(e))
 
@@ -49,7 +57,7 @@ logo_image = Image.open("bbis_logo.png").resize((40, 40))
 logo_photo = ImageTk.PhotoImage(logo_image)
 
 logo_label = tk.Label(top_frame, image=logo_photo, bg='white')
-logo_label.image = logo_photo  # prevent garbage collection
+logo_label.image = logo_photo
 logo_label.pack(side='left')
 
 text_frame = tk.Frame(top_frame, bg='white')
