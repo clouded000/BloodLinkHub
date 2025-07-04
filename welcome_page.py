@@ -1,109 +1,112 @@
 import tkinter as tk
-from tkinter import ttk
-from PIL import Image, ImageTk
-from db import get_connection
-from datetime import datetime
+from PIL import Image, ImageTk, ImageSequence
+import subprocess
+import os
+import sys
 
-class InventoryPage(tk.Frame):
-    def __init__(self, parent, controller):
-        super().__init__(parent, bg='white')
+def open_login():
+    root.destroy()
+    script_path = os.path.join(os.path.dirname(__file__), "login_page.py")
+    python_exec = sys.executable if hasattr(sys, 'executable') else "python"
+    subprocess.Popen([python_exec, script_path], cwd=os.path.dirname(script_path))
 
-        # Navbar
-        nav_bar = tk.Frame(self, bg='white')
-        nav_bar.pack(fill='x')
 
-        logo_img = Image.open("bbis_logo.png").resize((30, 30))
-        logo_photo = ImageTk.PhotoImage(logo_img)
+# --- Main Window ---
+root = tk.Tk()
+root.title("Welcome to Blood Link Hub!")
+root.geometry("800x500")
+root.configure(bg='black')
+root.resizable(True, True)
 
-        logo_label = tk.Label(nav_bar, image=logo_photo, bg='white')
-        logo_label.image = logo_photo
-        logo_label.pack(side='left', padx=(10, 5), pady=10)
+# --- Resample Compatibility ---
+try:
+    resample_filter = Image.Resampling.LANCZOS
+except AttributeError:
+    resample_filter = Image.ANTIALIAS
 
-        tk.Label(nav_bar, text="Blood Link Hub", fg="maroon", font=("Arial", 12, "bold"), bg='white').pack(side='left')
+# --- Background GIF ---
+gif_path = "duguduguan.gif"
+bg_label = tk.Label(root)
+bg_label.place(x=0, y=0, relwidth=1, relheight=1)
 
-        for txt, page in [("Home", "HomePage"), ("Donations", "DonationPage"),
-                          ("Blood Inventory", "InventoryPage"), ("Donation History", "DonationHistoryPage")]:
-            style = ("Arial", 10, "underline") if txt == "Blood Inventory" else ("Arial", 10)
-            fg = 'red' if txt == "Blood Inventory" else 'black'
-            lbl = tk.Label(nav_bar, text=txt, font=style, fg=fg, bg='white', cursor="hand2")
-            lbl.pack(side='left', padx=20)
-            lbl.bind("<Button-1>", lambda e, p=page: controller.show_frame(p))
+try:
+    gif = Image.open(gif_path)
+    original_frames = [frame.copy().convert("RGBA") for frame in ImageSequence.Iterator(gif)]
+except Exception as e:
+    print("GIF load error:", e)
+    original_frames = []
 
-        tk.Label(nav_bar, text="👤", font=("Arial", 12), bg='white').pack(side='right', padx=20)
-        tk.Frame(self, bg='lightgray', height=1).pack(fill='x')
+gif_frames = []
 
-        tk.Label(self, text="A - AVAILABLE    U - USED    E - EXPIRED", font=("Arial", 8), bg='white', anchor='e').pack(fill='x', padx=20, pady=(0, 5))
+def resize_gif_frames(width, height):
+    global gif_frames
+    if original_frames:
+        gif_frames = [
+            ImageTk.PhotoImage(frame.resize((width, height), resample_filter))
+            for frame in original_frames
+        ]
 
-        main_frame = tk.Frame(self, bg='white')
-        main_frame.pack(fill='both', expand=True, padx=10)
+def animate(index=0):
+    if gif_frames:
+        bg_label.config(image=gif_frames[index])
+        root.after(100, animate, (index + 1) % len(gif_frames))
 
-        # Filter section
-        filter_frame = tk.Frame(main_frame, bg='white')
-        filter_frame.pack(side='left', padx=10, pady=10, anchor='n')
+root.update_idletasks()
+resize_gif_frames(root.winfo_width(), root.winfo_height())
+animate()
 
-        tk.Label(filter_frame, text="⛭ FILTER", fg='red', font=("Arial", 9, "bold"), bg='white').pack(anchor='w', pady=(5, 2))
+def on_resize(event):
+    resize_gif_frames(event.width, event.height)
 
-        filter_box = tk.Frame(filter_frame, bg='red', padx=10, pady=10)
-        filter_box.pack()
+root.bind("<Configure>", on_resize)
 
-        def create_dropdown(label_text, values):
-            tk.Label(filter_box, text=label_text, bg='red', fg='white', font=("Arial", 9, "bold")).pack(anchor='w', pady=(5, 0))
-            combo = ttk.Combobox(filter_box, values=values, state="readonly", font=("Arial", 9), width=18)
-            combo.pack(anchor='w', pady=(0, 5))
-            combo.set("Select")
+# --- Logo and Title Section ---
+content_frame = tk.Frame(root, bg='white', padx=2, pady=2)
+content_frame.place(relx=0.5, rely=0.4, anchor="center")
 
-        create_dropdown("Blood Type", ["O+", "O-", "A+", "A-", "B+", "B-", "AB+", "AB-"])
-        create_dropdown("Blood Component Type", ["Whole Blood", "Plasma", "Platelets", "RBC", "WBC", "Cryo"])
-        create_dropdown("Status", ["Available", "Used", "Expired"])
+inner_frame = tk.Frame(content_frame, bg='black')
+inner_frame.pack()
 
-        tk.Button(filter_box, text="FILTER", font=("Arial", 9, "bold"), bg='white', fg='red', relief='ridge', width=18).pack(pady=(10, 0))
+# --- Logo ---
+try:
+    logo_img = Image.open("bbis_logo.png").resize((200, 200), resample_filter)
+    logo_photo = ImageTk.PhotoImage(logo_img)
+    logo_label = tk.Label(inner_frame, image=logo_photo, bg='black', bd=0)
+    logo_label.image = logo_photo
+    logo_label.pack(pady=(20, 10))
+except Exception as e:
+    print("Logo error:", e)
 
-        # Table section
-        table_frame = tk.Frame(main_frame, bg='white')
-        table_frame.pack(side='right', fill='both', expand=True)
+# --- Title Image ---
+try:
+    title_img = Image.open("BLOOD LINK HUB.png").resize((400, 200), resample_filter)
+    title_photo = ImageTk.PhotoImage(title_img)
+    title_label = tk.Label(inner_frame, image=title_photo, bg='black', bd=0)
+    title_label.image = title_photo
+    title_label.pack(pady=(0, 10))
+except Exception as e:
+    print("Title image error:", e)
 
-        columns = ('INVENTORY ID', 'BLOOD TYPE', 'BLOOD COMPONENT', 'QUANTITY', 'ENTRY DATE', 'EXPIRY DATE', 'STATUS A/U/E')
-        self.table = ttk.Treeview(table_frame, columns=columns, show='headings', height=15)
+# --- Proceed Button Section with Border ---
+button_border = tk.Frame(root, bg="white", padx=2, pady=2)
+button_border.place(relx=0.5, rely=0.82, anchor="center")
 
-        style = ttk.Style()
-        style.theme_use("default")
-        style.configure("Treeview", background="white", foreground="black", rowheight=25, fieldbackground="white", bordercolor='black', borderwidth=1)
-        style.map('Treeview', background=[('selected', 'lightgray')])
-        style.configure("Treeview.Heading", font=("Arial", 9, "bold"), background='red', foreground='white', relief="ridge")
+button_frame = tk.Frame(button_border, bg='black')
+button_frame.pack()
 
-        for col in columns:
-            self.table.heading(col, text=col)
-            self.table.column(col, anchor='w', width=125, stretch=False)
+proceed_btn = tk.Button(
+    button_frame,
+    text="Welcome to Blood Link Hub! Proceed to Log In.",
+    font=("Arial", 12, "bold"),
+    bg="black",
+    fg="white",
+    activebackground="black",
+    activeforeground="white",
+    padx=20, pady=10,
+    bd=0,
+    highlightthickness=0,
+    command=open_login
+)
+proceed_btn.pack()
 
-        self.table.pack(fill='both', expand=True)
-
-        # Load data from database
-        self.load_inventory_data()
-
-    def load_inventory_data(self):
-        try:
-            conn = get_connection()
-            cursor = conn.cursor()
-
-            query = """
-                SELECT 
-                    i.inventory_id,
-                    d.blood_type,
-                    c.component_type,
-                    i.quantity_units,
-                    i.entry_time_stamp,
-                    i.expiration_date,
-                    i.status
-                FROM Blood_Inventory i
-                JOIN Donation d ON i.donation_id = d.donation_id
-                JOIN Blood_Component c ON i.component_id = c.component_id
-            """
-            cursor.execute(query)
-            rows = cursor.fetchall()
-
-            for row in rows:
-                self.table.insert('', 'end', values=row)
-
-            conn.close()
-        except Exception as e:
-            print("Error loading inventory data:", e)
+root.mainloop()

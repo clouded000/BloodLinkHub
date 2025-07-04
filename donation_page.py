@@ -7,7 +7,6 @@ from dateutil.relativedelta import relativedelta
 import re
 from db import get_connection
 
-
 class DonationPage(tk.Frame):
     def __init__(self, parent, controller, admin_id):
         super().__init__(parent, bg='white')
@@ -28,9 +27,6 @@ class DonationPage(tk.Frame):
             lbl = tk.Label(nav, text=txt, font=style, fg=fg, bg='white', cursor="hand2")
             lbl.pack(side='left', padx=20)
             lbl.bind("<Button-1>", lambda e, p=page: controller.show_frame(p))
-
-        tk.Label(nav, text="👤", font=("Arial", 12), bg='white').pack(side='right', padx=20)
-        tk.Frame(self, bg='lightgray', height=1).pack(fill='x')
 
         mf = tk.Frame(self, bg='white')
         mf.pack(fill='both', expand=True, pady=10, padx=10)
@@ -59,8 +55,8 @@ class DonationPage(tk.Frame):
         self.birthday.pack(pady=2)
 
         tk.Label(ff, text="Sex:", bg='red', fg='white').pack(anchor='w')
-        self.gender = ttk.Combobox(ff, values=["Male", "Female"], width=28)
-        self.gender.pack(pady=2)
+        self.sex = ttk.Combobox(ff, values=["Male", "Female"], width=28)
+        self.sex.pack(pady=2)
 
         tk.Label(ff, text="Date of Donation:", bg='red', fg='white').pack(anchor='w')
         self.date_field = tk.Entry(ff, width=30)
@@ -75,10 +71,14 @@ class DonationPage(tk.Frame):
         tk.Button(ff, text="ADD", bg='white', fg='red',
                   font=("Arial", 10, "bold"), width=20, command=self.add_donation).pack(pady=10)
 
+
+        tk.Button(lf, text="Refresh", font=("Arial", 9, "bold"), bg='red', fg='white',
+                  width=30, command=self.load_donations).pack(pady=(10, 0))
+
         tf = tk.Frame(mf, bg='white')
         tf.pack(side='right', fill='both', expand=True, padx=10)
         cols = (
-            'First Name', 'Last Name', 'Contact', 'Email', 'Birthday', 'Sex',
+            'First Name', 'Last Name', 'Contact', 'Email', 'Birthdate', 'Sex',
             'Date of Donation', 'Blood Type'
         )
         self.donation_table = ttk.Treeview(tf, columns=cols, show='headings', height=15)
@@ -86,7 +86,6 @@ class DonationPage(tk.Frame):
             self.donation_table.heading(c, text=c)
             self.donation_table.column(c, anchor='center', width=120)
         self.donation_table.pack(fill='both', expand=True)
-        tk.Button(tf, text="Refresh", command=self.load_donations, bg='red', fg='white').pack(pady=5)
 
         self.load_donations()
         self._logo = logo_img
@@ -95,7 +94,7 @@ class DonationPage(tk.Frame):
         fn = self.first_name.get().strip()
         ln = self.last_name.get().strip()
         bd = self.birthday.get_date().strftime("%Y-%m-%d")
-        gen = self.gender.get()
+        gen = self.sex.get()
         cn = self.contact.get().strip()
         em = self.email.get().strip()
         bt = self.blood_type.get()
@@ -108,9 +107,7 @@ class DonationPage(tk.Frame):
         if not vol.isdigit() or int(vol) < 450 or int(vol) > 500:
             return messagebox.showerror("Error", "Volume must be between 450 ml and 500 ml.")
 
-        if not cn.isdigit() or len(cn) != 11:
-            return messagebox.showerror("Invalid Format", "Contact number must be exactly 11 digits.")
-        if not re.match(r"^09\d{9}$", cn):
+        if not cn.isdigit() or len(cn) != 11 or not re.match(r"^09\d{9}$", cn):
             return messagebox.showerror("Invalid Format", "Contact must start with '09' and be 11 digits.")
 
         name_pattern = r"^[A-Za-z\s\-]+$"
@@ -130,58 +127,95 @@ class DonationPage(tk.Frame):
             conn = get_connection()
             c = conn.cursor()
 
+            # Check if donor already exists based on name and birthdate
             c.execute("""
-                SELECT donor_id, gender FROM Donor
+                SELECT donor_id, sex FROM Donor
                 WHERE LOWER(first_name) = LOWER(?) AND LOWER(last_name) = LOWER(?) AND date_of_birth = ?
             """, (fn, ln, bd))
             dup = c.fetchone()
 
+            # Get the latest donation date for this donor
             if dup:
-                donor_id, gender_db = dup
+                donor_id, sex_db = dup
                 c.execute("SELECT MAX(donation_date) FROM Donation WHERE donor_id=?", (donor_id,))
                 last_donation = c.fetchone()[0]
 
                 if last_donation:
                     last_date = datetime.strptime(last_donation, "%Y-%m-%d")
-                    months_wait = 4 if gender_db.strip().lower() == 'male' else 6
+                    months_wait = 3 if sex_db.strip().lower() == 'male' else 3
                     next_allowed = last_date + relativedelta(months=+months_wait)
                     if datetime.today() < next_allowed:
                         return messagebox.showwarning("Too Early",
-                                                      f"{fn} {ln} can donate again on {next_allowed.strftime('%Y-%m-%d')}")
+                            f"{fn} {ln} can donate again on {next_allowed.strftime('%Y-%m-%d')}")
             else:
                 c.execute("""
-                    INSERT INTO Donor (first_name, last_name, date_of_birth, gender, contact_number, email_address, blood_type)
+                    INSERT INTO Donor (first_name, last_name, date_of_birth, sex, contact_number, email_address, blood_type)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                 """, (fn, ln, bd, gen, cn, em, bt))
                 donor_id = c.lastrowid
+                # Insert new donor into Donor table
 
+            # Insert new donation into Donation table
             now = datetime.now()
             c.execute("""
-                INSERT INTO Donation (donor_id, admin_id, donation_date, donation_time, volume_ml, notes)
-                VALUES (?, ?, ?, ?, ?, 'Walk-in donor')
+                INSERT INTO Donation (donor_id, admin_id, donation_date, donation_time, volume_ml)
+                VALUES (?, ?, ?, ?, ?)
             """, (donor_id, self.admin_id, dt, now.strftime("%H:%M"), vol))
 
             conn.commit()
-            messagebox.showinfo("Success", "Donation recorded successfully.")
+            # Add extracted blood components into inventory
+            self.add_inventory_from_donation(c.lastrowid, dt, bt, int(vol))
+            messagebox.showinfo("Success", "Donation recorded and inventory updated successfully.")
             self.load_donations()
 
             for var in (self.first_name, self.last_name, self.contact, self.email, self.volume):
                 var.delete(0, 'end')
             self.birthday.set_date(datetime.today())
-            self.gender.set('')
+            self.sex.set('')
             self.blood_type.set('')
 
         except Exception as e:
             messagebox.showerror("Database Error", str(e))
 
+    def add_inventory_from_donation(self, donation_id, donation_date, blood_type, total_volume):
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+            entry_date = datetime.strptime(donation_date, "%Y-%m-%d")
+
+            rbc_qty = round(total_volume * 0.45)
+            plasma_qty = round(total_volume * 0.54)
+            platelets_qty = round(total_volume * 0.005)  # 0.5% (shared with WBC)
+
+            components_to_insert = {
+                1: (plasma_qty, 365),
+                2: (platelets_qty, 5),
+                3: (rbc_qty, 42)
+            }
+
+            # Insert each component into Blood_Inventory table
+            for component_id, (qty, shelf_days) in components_to_insert.items():
+                expiration_date = (entry_date + timedelta(days=shelf_days)).strftime("%Y-%m-%d")
+                cursor.execute("""
+                    INSERT INTO Blood_Inventory (
+                        donation_id, component_id, quantity_per_component,
+                        entry_date_stamp, expiration_date, status
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                """, (donation_id, component_id, qty, donation_date + " 00:00:00", expiration_date, "Available"))
+
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            messagebox.showerror("Inventory Error", str(e))
+
+    # Fetch all donor and donation information
     def load_donations(self):
         try:
             conn = get_connection()
             c = conn.cursor()
             c.execute("""
                 SELECT do.first_name, do.last_name, do.contact_number, do.email_address,
-                       do.date_of_birth, do.gender, d.donation_date,
-                       do.blood_type
+                       do.date_of_birth, do.sex, d.donation_date, do.blood_type
                 FROM Donation d
                 JOIN Donor do ON d.donor_id = do.donor_id
             """)
@@ -189,6 +223,14 @@ class DonationPage(tk.Frame):
             conn.close()
             self.donation_table.delete(*self.donation_table.get_children())
             for r in rows:
+                try:
+                    donation_date = r[6]
+                    donation_datetime = datetime.strptime(donation_date, "%Y-%m-%d")
+                    if (datetime.now() - donation_datetime).days > 366:
+                # if (datetime.now() - entry_date_obj).total_seconds() > 60: for testing purposes
+                        continue
+                except:
+                    continue
                 self.donation_table.insert('', 'end', values=r)
         except Exception as e:
             messagebox.showerror("Database Error", str(e))
